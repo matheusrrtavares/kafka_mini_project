@@ -34,7 +34,7 @@ public class KafkaConsumerConfig {
         consumerConfigProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
         //EM PRODUÇÃO COLOCAR FALSE!!!!!!
-        consumerConfigProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
+        consumerConfigProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 
         consumerConfigProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         consumerConfigProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
