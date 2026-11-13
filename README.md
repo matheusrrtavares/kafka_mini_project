@@ -13,21 +13,13 @@
   <b>Sistema distribuído orientado a eventos (EDA) modular com Apache Kafka 4.1 em modo KRaft nativo (sem ZooKeeper), microsserviços Spring Boot 3/Java 21 desacoplados e painel de observabilidade em tempo real com Kafka-UI.</b>
 </p>
 
-[Visão Geral](#-visão-geral) •
-[Arquitetura](#-arquitetura-do-sistema) •
-[Tecnologias](#-stack-tecnológica) •
-[Como Executar](#-guia-de-execução-passo-a-passo) •
-[Endpoints da API](#-guia-da-api-rest-producer) •
-[Observabilidade](#-observabilidade-e-monitoramento-kafka-ui) •
-[Roadmap](#-roadmap-de-evolução-para-produção)
-
 </div>
 
 ---
 
 ## 📌 Visão Geral
 
-O **Kafka Mini Project** é uma implementação de referência de arquitetura distribuída baseada em mensageria assíncrona orientada a eventos (*Event-Driven Architecture*). O projeto foi concebido para demonstrar a ingestão, publicação e consumo de mensagens em tópicos do **Apache Kafka 4.1.0**, utilizando o moderno modo **KRaft (Kafka Raft Metadata)** que dispensa completamente a necessidade de instâncias dedicadas de Apache ZooKeeper.
+Esse projeto é uma implementação de referência de arquitetura distribuída baseada em mensageria assíncrona orientada a eventos (*Event-Driven Architecture*). O projeto foi concebido para demonstrar a ingestão, publicação e consumo de mensagens em tópicos do **Apache Kafka 4.1.0**.
 
 A aplicação é dividida em dois microsserviços autônomos construídos com **Spring Boot** e **Java 21**:
 - **`producer`**: expõe uma API REST HTTP para receber requisições de envio de dados e publica `ProducerRecord`s diretamente no tópico de destino no cluster Kafka.
@@ -91,7 +83,7 @@ flowchart LR
 | **Framework** | Spring Boot | 3.x / 4.x | Ecossistema base com Spring Web e Spring for Apache Kafka |
 | **Mensageria** | Apache Kafka | 4.1.0 | Event streaming distribuído operando em modo KRaft nativo |
 | **Orquestração** | Docker Compose | v2+ | Provisionamento declarativo de containers do broker e ferramentas |
-| **Observabilidade** | ProvectusLabs Kafka-UI | Latest | Interface web rica para métricas de tópicos, consumidores e brokers |
+| **Observabilidade** | ProvectusLabs Kafka-UI | Latest | Interface web para métricas de tópicos, consumidores e brokers |
 | **Build & Deps** | Apache Maven | 3.9+ | Gerenciamento multi-módulo (`pom.xml` raiz agregando `producer` e `consumer`) |
 | **Utilitários** | Project Lombok | - | Redução de boilerplate (`@RequiredArgsConstructor`, etc.) |
 
@@ -286,94 +278,6 @@ Invoke-RestMethod -Uri "http://localhost:8081/kafka" `
    ```text
    Received product message: Monitor UltraWide LG 34 - Pedido #5521
    ```
+ ---
 
----
-
-## 📊 Observabilidade e Monitoramento (Kafka UI)
-
-O projeto inclui o painel **ProvectusLabs Kafka-UI** pré-configurado no Docker Compose para inspeção em tempo real.
-
-- **Acesso:** [http://localhost:8080](http://localhost:8080)
-- **Recursos Disponíveis:**
-  - **Cluster Overview:** Saúde dos brokers, contagem de partições ativas e réplicas em sincronia (ISR).
-  - **Topics:** Criação, detalhamento, contagem de mensagens e inspeção de payloads em tempo real no tópico `rota-recebimento-produtos`.
-  - **Consumer Groups:** Monitoramento de lag do grupo `consumer-group-v1`, partições atribuídas e commit de offsets.
-  - **Message Browser:** Filtro por partição, offset e busca textual nos eventos consumidos.
-
-### Mapeamento Geral de Portas de Rede
-
-| Serviço | Porta do Host | Protocolo | Descrição |
-| :--- | :--- | :--- | :--- |
-| **Kafka-UI** | `8080` | HTTP | Interface gráfica de gerenciamento do cluster |
-| **Producer API** | `8081` | HTTP | Microsserviço REST para envio de produtos |
-| **Consumer Service** | `8082` | HTTP | Microsserviço consumidor `@KafkaListener` |
-| **Kafka Broker** | `9092` | TCP (PLAINTEXT) | Porta de conexão dos clientes Kafka externos |
-| **Kafka Controller** | `9093` | TCP (KRaft) | Comunicação interna do quorum de metadados |
-
----
-
-## 💡 Destaques de Implementação & Boas Práticas Adotadas
-
-1. **Apache Kafka 4.1 em Modo KRaft Nativo:**
-   Adoção da arquitetura moderna do Kafka baseada no protocolo Raft de metadados, eliminando a sobrecarga de memória, latência de eleição e complexidade operacional do Apache ZooKeeper.
-2. **Java 21 Records:**
-   Modelagem de DTOs concisos, imutáveis e legíveis com validação estrutural padrão (`record ProdutoDTO(String route, String content)`).
-3. **Desacoplamento em Microsserviços Distribuídos:**
-   Isolamento de responsabilidades de publicação e consumo em portas de rede (`8081` e `8082`), simulando o cenário real de sistemas corporativos escaláveis.
-4. **Configuração Explícita de Beans:**
-   Implementação de `ProducerFactory`, `ConsumerFactory` e `ConcurrentKafkaListenerContainerFactory`, proporcionando controle fino sobre serializadores e políticas de consumo.
-
----
-
-## 📈 Roadmap de Evolução para Produção
-
-Para elevar a arquitetura a um patamar corporativo com alta resiliência e concorrência, sugerem-se as seguintes melhorias:
-
-### 1. Envio Assíncrono com Callbacks Reativos
-Substituir a chamada bloqueante `result.get()` por `CompletableFuture.whenComplete()`:
-```java
-kafkaTemplate.send(record).whenComplete((sendResult, throwable) -> {
-    if (throwable != null) {
-        log.error("Falha ao entregar mensagem no tópico: {}", record.topic(), throwable);
-    } else {
-        log.info("Mensagem entregue com sucesso! Partição: {}, Offset: {}",
-                sendResult.getRecordMetadata().partition(),
-                sendResult.getRecordMetadata().offset());
-    }
-});
-```
-
-### 2. Tratamento de Erros e Dead Letter Queue (DLQ)
-Implementar `DefaultErrorHandler` com backoff exponencial e direcionamento automático de mensagens com falha irreversível para um tópico dead-letter (`rota-recebimento-produtos.DLT`):
-```java
-@Bean
-public DefaultErrorHandler errorHandler(KafkaTemplate<String, Object> template) {
-    return new DefaultErrorHandler(
-        new DeadLetterPublishingRecoverer(template),
-        new FixedBackOff(1000L, 3L) // 3 tentativas com intervalo de 1s
-    );
-}
-```
-
-### 3. Serialização Estruturada em JSON / Avro
-Utilizar `JsonSerializer` / `JsonDeserializer` do Spring Kafka ou **Apache Avro** integrado ao **Confluent Schema Registry** para garantir governança e evolução de contratos de dados (schema evolution).
-
-### 4. Gestão Manual de Offsets (`AckMode.MANUAL_IMMEDIATE`)
-Desativar o auto-commit (`enable.auto.commit = false`) e realizar o commit manual via `Acknowledgment.acknowledge()` apenas após o processamento com sucesso, garantindo semântica de entrega *at-least-once*.
-
-### 5. Métricas e Healthcheck com Spring Boot Actuator
-Adicionar `spring-boot-starter-actuator` e `micrometer-registry-prometheus` para exportar métricas de JVM, latência de consumo e taxa de erros diretamente para o Prometheus e Grafana.
-
----
-
-## 👤 Autor
-
-Desenvolvido por **Matheus Tavares**  
-- **GitHub:** [@matheusrrtavares](https://github.com/matheusrrtavares)  
-- **Repositório do Projeto:** [kafka_mini_project](https://github.com/matheusrrtavares/kafka_mini_project)
-
----
-
-<div align="center">
-  <sub>Construído com base nas melhores práticas da arquitetura orientada a eventos.</sub>
-</div>
+ PROJETO FEITO COMO BASE DE ESTUDO PARA ENTENDER MELHOR A APLICAÇÃO E FUNCIONAMENTO DO KAFKA !
